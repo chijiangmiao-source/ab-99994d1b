@@ -1,0 +1,53 @@
+name: centrifuge-audit
+
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      # Host side configurable: API_PORT (defaults to 8000).
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; r=urllib.request.urlopen('http://localhost:8000/health',timeout=3); assert json.load(r)['status']=='ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Host side configurable: WEB_PORT (defaults to 8080).
+      - "${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/web-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  verify:
+    build:
+      context: ./verify
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      API_BASE: http://api:8000
+      WEB_BASE: http://web:80
+    # One-shot acceptance service: it waits for both real HTTP services to
+    # pass their health checks, exercises the endpoints end-to-end, then exits
+    # 0 on full acceptance and non-zero on any failure.
+    # Inspect with: docker compose logs verify
+    # Re-run with:   docker compose run --rm verify
+    restart: "no"
